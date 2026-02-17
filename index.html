@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <!-- Подключаем SDK Битрикс24 -->
+    <script src="//api.bitrix24.com/api/v1/"></script>
+    <style>
+        body {
+            font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            font-size: 13px;
+            padding: 10px;
+            background: #fff;
+        }
+        .table-container {
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            text-align: left;
+            padding: 8px;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f5f5f5;
+            font-weight: 600;
+            color: #535c69;
+        }
+        tr:hover {
+            background-color: #f9f9f9;
+        }
+        .empty-message {
+            color: #999;
+            font-style: italic;
+        }
+        /* Стили для аватара ответственного */
+        .user-avatar {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            vertical-align: middle;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app">
+        <h3>Связанные процессы</h3>
+        <div class="table-container">
+            <table id="items-table">
+                <thead>
+                    <tr>
+                        <th>Название</th>
+                        <th>Дата создания</th>
+                        <th>Ответственный</th>
+                    </tr>
+                </thead>
+                <tbody id="items-body">
+                    <tr><td colspan="3" class="empty-message">Загрузка данных...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // --- НАСТРОЙКИ ---
+        // Укажите здесь код поля, где хранятся связи (например, UF_CRM_123456)
+        const LINK_FIELD_CODE = 'UF_CRM_5_1771350393'; 
+        
+        // Укажите здесь ID типа сущности связанных процессов (например, 152)
+        const LINK_ENTITY_ID = 129; 
+        // -----------------
+
+        BX24.init(function() {
+            // 1. Получаем контекст размещения (ID текущего элемента и тип сущности)
+            BX24.getPlacementInfo(function(info) {
+                if (!info || !info.options || !info.options.ID) {
+                    showError("Не удалось получить ID текущего элемента");
+                    return;
+                }
+
+                const currentItemId = info.options.ID;
+                const currentEntityId = info.options.ENTITY_ID; // ID текущего смарт-процесса
+
+                console.log("Текущий элемент:", currentItemId, "Тип:", currentEntityId);
+
+                // 2. Получаем данные текущего элемента, чтобы вытащить ID связанных
+                BX24.callMethod('crm.item.get', {
+                    entityType: currentEntityId,
+                    id: currentItemId
+                }, function(result) {
+                    if (result.error()) {
+                        showError("Ошибка получения элемента: " + result.error_description());
+                        return;
+                    }
+
+                    const itemData = result.data();
+                    // Получаем массив ID из поля связи
+                    const linkedIds = itemData[LINK_FIELD_CODE] || [];
+
+                    if (linkedIds.length === 0) {
+                        renderTable([]);
+                        return;
+                    }
+
+                    // 3. Получаем данные связанных элементов через batch (оптимизированный запрос)
+                    // Метод crm.item.list позволяет выбрать по конкретным ID
+                    BX24.callMethod('crm.item.list', {
+                        entityType: 'crm.' + LINK_ENTITY_ID,
+                        filter: {
+                            ID: linkedIds
+                        },
+                        select: ['ID', 'TITLE', 'DATE_CREATE', 'ASSIGNED_BY', 'ASSIGNED_BY_NAME']
+                    }, function(listResult) {
+                        if (listResult.error()) {
+                            showError("Ошибка получения списка: " + listResult.error_description());
+                            return;
+                        }
+                        
+                        // Рендерим таблицу
+                        renderTable(listResult.data());
+                    });
+                });
+            });
+        });
+
+        // Функция отрисовки таблицы
+        function renderTable(data) {
+            const tbody = document.getElementById('items-body');
+            tbody.innerHTML = '';
+
+            if (!data || data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="empty-message">Нет связанных процессов</td></tr>';
+                return;
+            }
+
+            data.forEach(item => {
+                const tr = document.createElement('tr');
+                
+                // Форматирование даты
+                let dateStr = item.DATE_CREATE;
+                if (dateStr) {
+                    const d = new Date(dateStr);
+                    dateStr = d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', {hour: '2-digit', minute:'2-digit'});
+                }
+
+                // Формирование строки с ответственным (имя + фото)
+                let responsibleHtml = item.ASSIGNED_BY_NAME || '-';
+                if (item.ASSIGNED_BY && item.ASSIGNED_BY.WORK_POSITION) {
+                     // Можно добавить должность, если нужно
+                }
+                // Если есть фото, можно подставить его URL (обычно это сложнее, требует доп запроса или поля PHOTO)
+                // Для простоты выводим имя.
+
+                tr.innerHTML = `
+                    <td>${item.TITLE || 'Без названия'}</td>
+                    <td>${dateStr}</td>
+                    <td>${responsibleHtml}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function showError(msg) {
+            document.getElementById('items-body').innerHTML = `<tr><td colspan="3" style="color:red">${msg}</td></tr>`;
+        }
+    </script>
+</body>
+</html>
